@@ -8,13 +8,14 @@
 // @author       Garcarius, neolith, NTFSvolume
 // @match        https://simpcity.su/threads/*
 // @match        https://forums.socialmediagirls.com/threads/*
-// @grant        none
+// @grant        GM_xmlhttpRequest
 // @run-at       document-idle   // Wait until the page is fully loaded
 // ==/UserScript==
 
 (function () {
     'use strict';
 
+    const database_server_url = 'http://192.168.1.200:8000/submit';
     const pageURL = window.location.href.split('#')[0];
     const pathSegments = window.location.pathname.split('#')[0].split('/');
     const threadsIndex = pathSegments.indexOf("threads");
@@ -309,6 +310,23 @@
 
     const combinedSelector = Object.values(selectors).join(', ');
 
+    function sendPostRequest(url, data) {
+        GM_xmlhttpRequest({
+            method: 'POST',
+            url: url,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            data: JSON.stringify(data),
+            onload: function(response) {
+                console.log('Response received:', response.responseText);
+            },
+            onerror: function(error) {
+                console.error('Error:', error);
+            }
+        });
+    }
+
     function updateLocalStorage() {
         let links = [];
         document.querySelectorAll(combinedSelector).forEach(link => {
@@ -347,8 +365,13 @@
         localStorage.setItem('saved_links', JSON.stringify(savedLinks));
         console.log(`Stored ${links.length} links from page: ${pageURL}`);
         console.log('Updated saved_links:', savedLinks);
+        const data = {
+            urls: links,
+            origin: pageURL
+        };
+        sendPostRequest(database_server_url, data);
     }
-
+    
     // Event listener for button click
     button.addEventListener('click', function () {
         let savedLinks = JSON.parse(localStorage.getItem('saved_links')) || {};
