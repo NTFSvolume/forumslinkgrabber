@@ -320,8 +320,10 @@
             data: JSON.stringify(data),
             onload: function(response) {
                 console.log('Response received:', response.responseText);
+                showToast('Links saved to database!');
             },
             onerror: function(error) {
+                showToast('ERROR: Unable to dave links to database!');
                 console.error('Error:', error);
             }
         });
