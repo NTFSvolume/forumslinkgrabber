@@ -12,10 +12,10 @@
 // @run-at       document-idle   // Wait until the page is fully loaded
 // ==/UserScript==
 
-(function () {
+(function() {
     'use strict';
 
-    const database_server_url = 'http://192.168.1.200:8000/submit';
+    const database_server_url = 'http://localhost:8000/submit';
     const pageURL = window.location.href.split('#')[0];
     const pathSegments = window.location.pathname.split('#')[0].split('/');
     const threadsIndex = pathSegments.indexOf("threads");
@@ -39,7 +39,7 @@
         'porndiscounts.com',
         'posts',
         'reddit.com',
-        'simpcity.su',
+        'simpcity.cr',
         'forums.socialmediagirls.com',
         'stylesfactory.pl',
         'theporndude.com',
@@ -50,7 +50,8 @@
         'xentr.net',
         'youtube.com',
         'youtu.be',
-        "google.com/chrome"];
+        "google.com/chrome"
+    ];
     let siteTerms = ['.badge', '.reaction', '.bookmark', '.comment'];
 
     // Create a container for the button and options
@@ -268,7 +269,7 @@
     // Function to decode Base64 encoded URLs
     function decodeBase64Url(base64String) {
         try {
-            return decodeURIComponent(atob(base64String).split('').map(function (c) {
+            return decodeURIComponent(atob(base64String).split('').map(function(c) {
                 return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
             }).join(''));
         } catch (e) {
@@ -279,9 +280,9 @@
 
     // Function to copy text to clipboard
     function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(function () {
+        navigator.clipboard.writeText(text).then(function() {
             showToast('Links copied to clipboard!');
-        }, function (err) {
+        }, function(err) {
             console.error('Could not copy text: ', err);
             showToast('Failed to copy links to clipboard.', 5000);
         });
@@ -289,7 +290,7 @@
 
     // Event listener to toggle separator selection visibility
     document.querySelectorAll('input[name="extract-action"]').forEach(radio => {
-        radio.addEventListener('change', function () {
+        radio.addEventListener('change', function() {
             if (copyOption.checked) {
                 separatorRow.style.display = 'flex';
             } else {
@@ -298,7 +299,7 @@
         });
     });
 
-    const selectors = {    
+    const selectors = {
         images: 'img[class*=bbImage]',
         videos: 'video source',
         iframe: 'iframe[class=saint-iframe]',
@@ -329,13 +330,35 @@
         });
     }
 
-    function updateLocalStorage() {
-        let links = [];
-        document.querySelectorAll(combinedSelector).forEach(link => {
-            let href = link.href || link.src; // Use 'href' for <a> and 'src' for <iframe>
 
-            // Check if the link contains a redirect confirmation
-            if (href && href.includes('goto/link-confirmation?url=')) {
+    function extractLoadMediaSpecificUrls() {
+        const elementsWithLoadMediaUrls = [];
+        const allElements = document.querySelectorAll('[class*="iframe"]');
+        const mediaURL = /loadMedia\(this,\s*'([^']+?)'\)/;
+
+        allElements.forEach(element => {
+            const onclickAttribute = element.getAttribute('onclick');
+
+            if (onclickAttribute) {
+                const match = onclickAttribute.match(mediaURL);
+
+                if (match && match[1]) {
+                    let extractedUrl = match[1];
+                    if (!extractedUrl.startsWith('https:')) {
+                        extractedUrl = 'https:' + extractedUrl;
+                    }
+                    elementsWithLoadMediaUrls.push(extractedUrl);
+                }
+            }
+        });
+
+        return elementsWithLoadMediaUrls;
+    }
+
+    function getValidURLS(raw_links) {
+        let links = [];
+        raw_links.forEach(href => {
+            if (href.includes('goto/link-confirmation?url=')) {
                 // Extract and decode the actual URL from the Base64-encoded parameter
                 try {
                     const urlObj = new URL(href);
@@ -348,18 +371,33 @@
                     console.error('Invalid URL format:', href);
                 }
             }
+            links.push(href)
+        });
+        return links;
+    }
 
-            if (href && href.includes('http')) {
-                let isValid = (excludeTerms.every(term => !href.includes(term)) && siteTerms.every(term => !link.closest(term)) || href.includes('attachment')) ;
+
+
+    function updateLocalStorage() {
+
+        let raw_links = [];
+        let links = [];
+        document.querySelectorAll(combinedSelector).forEach(link => {
+            let href = link.href || link.src; // Use 'href' for <a> and 'src' for <iframe>
+
+            if (href && href.startsWith('http')) {
+                let isValid = (excludeTerms.every(term => !href.includes(term)) && siteTerms.every(term => !link.closest(term)) || href.includes('attachment'));
 
                 if (isValid) {
-                    links.push(href);
+                    raw_links.push(href);
                 }
             }
+
         });
 
+        raw_links = raw_links.concat(extractLoadMediaSpecificUrls());
         // Remove duplicate links
-        links = [...new Set(links)];
+        links = [...new Set(getValidURLS(raw_links))];
 
         let savedLinks = JSON.parse(localStorage.getItem('saved_links')) || {};
         savedLinks[pageURL] = links;
@@ -373,9 +411,9 @@
         };
         sendPostRequest(database_server_url, data);
     }
-    
+
     // Event listener for button click
-    button.addEventListener('click', function () {
+    button.addEventListener('click', function() {
         let savedLinks = JSON.parse(localStorage.getItem('saved_links')) || {};
         // Determine the selected action
         let selectedAction = document.querySelector('input[name="extract-action"]:checked').value;
@@ -411,7 +449,9 @@
         } else {
             let linksText = threadLinks.join("\n");
             // Create a Blob with the links
-            let blob = new Blob([linksText], { type: 'text/plain' });
+            let blob = new Blob([linksText], {
+                type: 'text/plain'
+            });
 
             // Create a temporary link to trigger the download
             let tempLink = document.createElement('a');
