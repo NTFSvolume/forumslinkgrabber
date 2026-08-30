@@ -85,11 +85,18 @@
       },
       data: JSON.stringify(data),
       onload: function (response) {
-        console.log("Response received:", response.responseText);
-        showToast("Links saved to database!");
+        if (response.status == 200) {
+          console.log("Response received:", response.responseText);
+          showToast("Links saved to database!");
+        } else {
+          showToast(
+            `ERROR: Unable to save links to database! ${response.status} - ${response.statusText}`,
+          );
+          console.error("Error:", error, response.status, response.statusText);
+        }
       },
       onerror: function (error) {
-        showToast("ERROR: Unable to dave links to database!");
+        showToast("ERROR: Unable to save links to database!");
         console.error("Error:", error);
       },
     });
@@ -198,7 +205,7 @@
     showToast(`Extracted ${links.length} links`);
     const data = {
       urls: links,
-      origin: pageURL,
+      source: pageURL,
     };
     sendPostRequest(database_server_url, data);
   }
