@@ -27,7 +27,8 @@
     threadsIndex !== -1 && threadsIndex < pathSegments.length - 2
       ? pathSegments[threadsIndex + 2]
       : "";
-  // Exclude unwanted links (badges, reactions, comments, posts, etc.)
+
+  let links = [];
   let excludeTerms = [
     "adglare.net",
     "adtng",
@@ -61,21 +62,9 @@
   ];
   let siteTerms = [".badge", ".reaction", ".bookmark", ".comment"];
 
-  // Function to decode Base64 encoded URLs
   function decodeBase64Url(base64String) {
     return atob(base64String.replace(/-/g, "+").replace(/_/g, "/"));
   }
-
-  // Event listener to toggle separator selection visibility
-  document.querySelectorAll('input[name="extract-action"]').forEach((radio) => {
-    radio.addEventListener("change", function () {
-      if (copyOption.checked) {
-        separatorRow.style.display = "flex";
-      } else {
-        separatorRow.style.display = "none";
-      }
-    });
-  });
 
   const combinedSelector = [
     "a",
@@ -130,9 +119,12 @@
     return elementsWithLoadMediaUrls;
   }
 
-  const addOriginIfRelativePath = (url) => {
+  const resolveURL = (url) => {
     if (typeof url !== "string") return url;
-    if (url.startsWith("/") && !url.startsWith("//")) {
+    if (url.startsWith("//")) {
+      return "https:" + url;
+    }
+    if (url.startsWith("/")) {
       return window.location.origin + url;
     }
     return url;
@@ -152,7 +144,7 @@
     return href;
   };
 
-  function updateLocalStorage() {
+  function run() {
     let raw_links = [];
 
     for (const post of document.querySelectorAll(
@@ -174,7 +166,7 @@
           continue;
         }
 
-        href = addOriginIfRelativePath(href);
+        href = resolveURL(href);
 
         let decoded;
         try {
@@ -201,19 +193,9 @@
 
     raw_links = raw_links.concat(extractLoadMediaSpecificUrls());
     // Remove duplicate links
-    let links = [...new Set(raw_links)];
+    links = [...new Set(raw_links)];
 
-    let savedLinks = JSON.parse(localStorage.getItem("saved_links")) || {};
-    savedLinks[pageURL] = links;
-
-    try {
-      localStorage.setItem("saved_links", JSON.stringify(savedLinks));
-    } catch (err) {
-      console.warn("Failed to write to localStorage:", err);
-      showToast("ERROR: Failed to write to localStorage!");
-    }
-    console.log(`Stored ${links.length} links from page: ${pageURL}`);
-    console.log("Updated saved_links:", savedLinks);
+    showToast(`Extracted ${links.length} links`);
     const data = {
       urls: links,
       origin: pageURL,
@@ -247,9 +229,8 @@
   container.style.color = "white";
   container.style.fontFamily = "Arial, sans-serif";
   container.style.fontSize = "14px";
-  container.style.width = "300px"; // Increased width from 250px to 300px
+  container.style.width = "300px";
 
-  // Create the Extract Links button
   let button = document.createElement("button");
   button.innerHTML = "Extract Links";
   button.style.padding = "10px 15px";
@@ -264,7 +245,6 @@
   button.style.boxShadow = "0 2px 5px rgba(0,0,0,0.3)";
   button.style.transition = "background-color 0.3s ease";
 
-  // Button hover effect
   button.addEventListener("mouseover", () => {
     button.style.backgroundColor = "#2a9aa3";
   });
@@ -283,11 +263,10 @@
     let row = document.createElement("div");
     row.style.display = "flex";
     row.style.alignItems = "center";
-    row.style.gap = "5px"; // Increased gap for better spacing
+    row.style.gap = "5px";
     return row;
   }
 
-  // Create the radio buttons for action selection
   let actionRow = createOptionRow();
 
   let downloadOption = document.createElement("input");
@@ -324,19 +303,6 @@
 
   let optionsRow = createOptionRow();
 
-  let onlyCurrentPageCheckbox = document.createElement("input");
-  onlyCurrentPageCheckbox.type = "checkbox";
-  onlyCurrentPageCheckbox.id = "only-current-page";
-  onlyCurrentPageCheckbox.name = "only-current-page";
-  onlyCurrentPageCheckbox.checked = false;
-
-  let onlyCurrentPageLabel = document.createElement("label");
-  onlyCurrentPageLabel.htmlFor = "only-current-page";
-  onlyCurrentPageLabel.textContent = "Only Current Page";
-  onlyCurrentPageLabel.style.cursor = "pointer";
-  onlyCurrentPageLabel.style.whiteSpace = "nowrap";
-  onlyCurrentPageLabel.style.flexBasis = "120px";
-
   let sortLinksCheckbox = document.createElement("input");
   sortLinksCheckbox.type = "checkbox";
   sortLinksCheckbox.id = "sort-links";
@@ -349,8 +315,6 @@
   sortLinksLabel.style.cursor = "pointer";
   sortLinksLabel.style.whiteSpace = "nowrap";
 
-  optionsRow.appendChild(onlyCurrentPageCheckbox);
-  optionsRow.appendChild(onlyCurrentPageLabel);
   optionsRow.appendChild(sortLinksCheckbox);
   optionsRow.appendChild(sortLinksLabel);
 
@@ -392,11 +356,10 @@
 
   let navBar = document.querySelector(".p-nav");
 
-  // Function to position the button below the navBar
   function positionButtonBelowNavBar() {
     let navBarHeight = navBar.offsetHeight;
     let navBarTop = navBar.getBoundingClientRect().top;
-    container.style.top = navBarTop + navBarHeight + 10 + "px"; // 10px margin below the navBar
+    container.style.top = navBarTop + navBarHeight + 10 + "px";
   }
 
   positionButtonBelowNavBar();
@@ -416,7 +379,6 @@
   toastContainer.style.gap = "10px";
   document.body.appendChild(toastContainer);
 
-  // Function to show toast notifications
   function showToast(message, duration = 3000) {
     let toast = document.createElement("div");
     toast.textContent = message;
@@ -432,11 +394,9 @@
 
     toastContainer.appendChild(toast);
 
-    // Trigger reflow to enable transition
     void toast.offsetWidth;
     toast.style.opacity = "1";
 
-    // Remove the toast after the specified duration
     setTimeout(() => {
       toast.style.opacity = "0";
       toast.addEventListener("transitionend", () => {
@@ -445,38 +405,32 @@
     }, duration);
   }
 
-  // Event listener for button click
+  document.querySelectorAll('input[name="extract-action"]').forEach((radio) => {
+    radio.addEventListener("change", function () {
+      if (copyOption.checked) {
+        separatorRow.style.display = "flex";
+      } else {
+        separatorRow.style.display = "none";
+      }
+    });
+  });
+
   button.addEventListener("click", function () {
-    let savedLinks = JSON.parse(localStorage.getItem("saved_links")) || {};
-    // Determine the selected action
     let selectedAction = document.querySelector(
       'input[name="extract-action"]:checked',
     ).value;
     let separator = separatorSelect.value;
     let sortLinks = sortLinksCheckbox.checked;
-    let onlyCurrentPage = onlyCurrentPageCheckbox.checked;
     let fileName = threadName;
+    fileName = threadName.concat("/", threadPage);
+    console.log(links);
 
-    if (onlyCurrentPage) {
-      fileName = threadName.concat("/", threadPage);
-    }
-
-    const threadKeys = Object.keys(savedLinks).filter(
-      (key) => fileName && key.includes(fileName),
-    );
-    console.log(`found ${threadKeys.length} pages`);
-    let threadLinks = Object.values(
-      threadKeys.map((key) => savedLinks[key]),
-    ).flat();
-    console.log(threadLinks);
-
-    if (threadLinks.length === 0) {
+    if (links.length === 0) {
       showToast("No links found!", 4000);
       return;
     }
 
-    // Remove duplicate links accross multiple pages
-    threadLinks = [...new Set(threadLinks)];
+    let threadLinks = [...new Set(links)];
 
     if (sortLinks) {
       threadLinks = threadLinks.sort();
@@ -487,12 +441,10 @@
       copyToClipboard(linksText);
     } else {
       let linksText = threadLinks.join("\n");
-      // Create a Blob with the links
       let blob = new Blob([linksText], {
         type: "text/plain",
       });
 
-      // Create a temporary link to trigger the download
       let tempLink = document.createElement("a");
       tempLink.href = URL.createObjectURL(blob);
       tempLink.download = `${fileName}.txt`;
@@ -503,5 +455,5 @@
     }
   });
 
-  updateLocalStorage();
+  run();
 })();
