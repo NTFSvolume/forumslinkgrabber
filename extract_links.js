@@ -77,17 +77,15 @@
     });
   });
 
-  const selectors = {
-    images: "img[class*=bbImage]",
-    videos: "video source",
-    iframe: "iframe[class=saint-iframe]",
-    embeds: "iframe",
-    attachments_block: "section[class=message-attachments]",
-    attachments: "a",
-    embeds2: "span[data-s9e-mediaembed-iframe]",
-  };
-
-  const combinedSelector = Object.values(selectors).join(", ");
+  const combinedSelector = [
+    "a",
+    "img[class*=bbImage]",
+    "video source",
+    "section[class=message-attachments]",
+    "iframe",
+    "[data-s9e-mediaembed-src]",
+    "span[data-s9e-mediaembed-iframe]",
+  ].join(", ");
 
   function sendPostRequest(url, data) {
     GM_xmlhttpRequest({
@@ -157,32 +155,46 @@
   function updateLocalStorage() {
     let raw_links = [];
 
-    for (const link of document.querySelectorAll(combinedSelector)) {
-      let href = link.href || link.src;
-      if (!href) {
-        continue;
-      }
+    for (const post of document.querySelectorAll(
+      ".bbWrapper, .message-attachments, .attachmentList",
+    )) {
+      for (const tag of post.querySelectorAll(combinedSelector)) {
+        let href =
+          tag.href ||
+          tag.src ||
+          tag.getAttribute("data-s9e-mediaembed-src") ||
+          tag.getAttribute("data-url") ||
+          tag.getAttribute("data-src");
 
-      href = addOriginIfRelativePath(href);
+        if (
+          !href ||
+          href.startsWith("data:") ||
+          href.startsWith("javascript:")
+        ) {
+          continue;
+        }
 
-      let decoded;
-      try {
-        decoded = decodeRedirectUrl(href);
-      } catch (e) {
-        showToast("ERROR: Unable to decode URL: " + href);
-        console.error("Unable to decode URL:", href, e);
-        continue;
-      }
-      href = decoded;
+        href = addOriginIfRelativePath(href);
 
-      if (href && href.startsWith("http")) {
-        const isValid =
-          (excludeTerms.every((term) => !href.includes(term)) &&
-            siteTerms.every((term) => !link.closest(term))) ||
-          href.includes("attachment");
+        let decoded;
+        try {
+          decoded = decodeRedirectUrl(href);
+        } catch (e) {
+          showToast("ERROR: Unable to decode URL: " + href);
+          console.error("Unable to decode URL:", href, e);
+          continue;
+        }
+        href = decoded;
 
-        if (isValid) {
-          raw_links.push(href);
+        if (href && href.startsWith("http")) {
+          const isValid =
+            (excludeTerms.every((term) => !href.includes(term)) &&
+              siteTerms.every((term) => !tag.closest(term))) ||
+            href.includes("attachment");
+
+          if (isValid) {
+            raw_links.push(href);
+          }
         }
       }
     }
