@@ -61,7 +61,168 @@
   ];
   let siteTerms = [".badge", ".reaction", ".bookmark", ".comment"];
 
-  // Create a container for the button and options
+  // Function to decode Base64 encoded URLs
+  function decodeBase64Url(base64String) {
+    return atob(base64String.replace(/-/g, "+").replace(/_/g, "/"));
+  }
+
+  // Event listener to toggle separator selection visibility
+  document.querySelectorAll('input[name="extract-action"]').forEach((radio) => {
+    radio.addEventListener("change", function () {
+      if (copyOption.checked) {
+        separatorRow.style.display = "flex";
+      } else {
+        separatorRow.style.display = "none";
+      }
+    });
+  });
+
+  const selectors = {
+    images: "img[class*=bbImage]",
+    videos: "video source",
+    iframe: "iframe[class=saint-iframe]",
+    embeds: "iframe",
+    attachments_block: "section[class=message-attachments]",
+    attachments: "a",
+    embeds2: "span[data-s9e-mediaembed-iframe]",
+  };
+
+  const combinedSelector = Object.values(selectors).join(", ");
+
+  function sendPostRequest(url, data) {
+    GM_xmlhttpRequest({
+      method: "POST",
+      url: url,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      data: JSON.stringify(data),
+      onload: function (response) {
+        console.log("Response received:", response.responseText);
+        showToast("Links saved to database!");
+      },
+      onerror: function (error) {
+        showToast("ERROR: Unable to dave links to database!");
+        console.error("Error:", error);
+      },
+    });
+  }
+
+  function extractLoadMediaSpecificUrls() {
+    const elementsWithLoadMediaUrls = [];
+    const allElements = document.querySelectorAll('[class*="iframe"]');
+    const mediaURL = /loadMedia\(this,\s*'([^']+?)'\)/;
+
+    allElements.forEach((element) => {
+      const onclickAttribute = element.getAttribute("onclick");
+
+      if (onclickAttribute) {
+        const match = onclickAttribute.match(mediaURL);
+
+        if (match && match[1]) {
+          let extractedUrl = match[1];
+          if (!extractedUrl.startsWith("https:")) {
+            extractedUrl = "https:" + extractedUrl;
+          }
+          elementsWithLoadMediaUrls.push(extractedUrl);
+        }
+      }
+    });
+
+    return elementsWithLoadMediaUrls;
+  }
+
+  const addOriginIfRelativePath = (url) => {
+    if (typeof url !== "string") return url;
+    if (url.startsWith("/") && !url.startsWith("//")) {
+      return window.location.origin + url;
+    }
+    return url;
+  };
+
+  const decodeRedirectUrl = (href) => {
+    if (href.includes("goto/link-confirmation?url=")) {
+      const urlObj = new URL(href);
+      const encodedUrl = urlObj.searchParams.get("url");
+      return decodeBase64Url(encodedUrl);
+    }
+    if (href.includes("/redirect/?to=")) {
+      const urlObj = new URL(href);
+      const encodedUrl = urlObj.searchParams.get("to");
+      return decodeBase64Url(encodedUrl);
+    }
+    return href;
+  };
+
+  function updateLocalStorage() {
+    let raw_links = [];
+
+    for (const link of document.querySelectorAll(combinedSelector)) {
+      let href = link.href || link.src;
+      if (!href) {
+        continue;
+      }
+
+      href = addOriginIfRelativePath(href);
+
+      let decoded;
+      try {
+        decoded = decodeRedirectUrl(href);
+      } catch (e) {
+        showToast("ERROR: Unable to decode URL: " + href);
+        console.error("Unable to decode URL:", href, e);
+        continue;
+      }
+      href = decoded;
+
+      if (href && href.startsWith("http")) {
+        const isValid =
+          (excludeTerms.every((term) => !href.includes(term)) &&
+            siteTerms.every((term) => !link.closest(term))) ||
+          href.includes("attachment");
+
+        if (isValid) {
+          raw_links.push(href);
+        }
+      }
+    }
+
+    raw_links = raw_links.concat(extractLoadMediaSpecificUrls());
+    // Remove duplicate links
+    let links = [...new Set(raw_links)];
+
+    let savedLinks = JSON.parse(localStorage.getItem("saved_links")) || {};
+    savedLinks[pageURL] = links;
+
+    try {
+      localStorage.setItem("saved_links", JSON.stringify(savedLinks));
+    } catch (err) {
+      console.warn("Failed to write to localStorage:", err);
+      showToast("ERROR: Failed to write to localStorage!");
+    }
+    console.log(`Stored ${links.length} links from page: ${pageURL}`);
+    console.log("Updated saved_links:", savedLinks);
+    const data = {
+      urls: links,
+      origin: pageURL,
+    };
+    sendPostRequest(database_server_url, data);
+  }
+
+  // UI
+
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(
+      function () {
+        showToast("Links copied to clipboard!");
+      },
+      function (err) {
+        console.error("Could not copy text: ", err);
+        showToast("Failed to copy links to clipboard.", 5000);
+      },
+    );
+  }
+
   let container = document.createElement("div");
   container.style.position = "fixed";
   container.style.top = "10px";
@@ -270,180 +431,6 @@
         toast.remove();
       });
     }, duration);
-  }
-
-  // Function to decode Base64 encoded URLs
-  function decodeBase64Url(base64String) {
-    try {
-      return decodeURIComponent(
-        atob(base64String)
-          .split("")
-          .map(function (c) {
-            return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
-          })
-          .join(""),
-      );
-    } catch (e) {
-      console.error("Error decoding Base64 URL:", e);
-      return null;
-    }
-  }
-
-  // Function to copy text to clipboard
-  function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(
-      function () {
-        showToast("Links copied to clipboard!");
-      },
-      function (err) {
-        console.error("Could not copy text: ", err);
-        showToast("Failed to copy links to clipboard.", 5000);
-      },
-    );
-  }
-
-  // Event listener to toggle separator selection visibility
-  document.querySelectorAll('input[name="extract-action"]').forEach((radio) => {
-    radio.addEventListener("change", function () {
-      if (copyOption.checked) {
-        separatorRow.style.display = "flex";
-      } else {
-        separatorRow.style.display = "none";
-      }
-    });
-  });
-
-  const selectors = {
-    images: "img[class*=bbImage]",
-    videos: "video source",
-    iframe: "iframe[class=saint-iframe]",
-    embeds: "iframe",
-    attachments_block: "section[class=message-attachments]",
-    attachments: "a",
-    embeds2: "span[data-s9e-mediaembed-iframe]",
-  };
-
-  const combinedSelector = Object.values(selectors).join(", ");
-
-  function sendPostRequest(url, data) {
-    GM_xmlhttpRequest({
-      method: "POST",
-      url: url,
-      headers: {
-        "Content-Type": "application/json",
-      },
-      data: JSON.stringify(data),
-      onload: function (response) {
-        console.log("Response received:", response.responseText);
-        showToast("Links saved to database!");
-      },
-      onerror: function (error) {
-        showToast("ERROR: Unable to dave links to database!");
-        console.error("Error:", error);
-      },
-    });
-  }
-
-  function extractLoadMediaSpecificUrls() {
-    const elementsWithLoadMediaUrls = [];
-    const allElements = document.querySelectorAll('[class*="iframe"]');
-    const mediaURL = /loadMedia\(this,\s*'([^']+?)'\)/;
-
-    allElements.forEach((element) => {
-      const onclickAttribute = element.getAttribute("onclick");
-
-      if (onclickAttribute) {
-        const match = onclickAttribute.match(mediaURL);
-
-        if (match && match[1]) {
-          let extractedUrl = match[1];
-          if (!extractedUrl.startsWith("https:")) {
-            extractedUrl = "https:" + extractedUrl;
-          }
-          elementsWithLoadMediaUrls.push(extractedUrl);
-        }
-      }
-    });
-
-    return elementsWithLoadMediaUrls;
-  }
-
-  const addOriginIfRelativePath = (url) => {
-    if (typeof url !== "string") return url;
-    if (url.startsWith("/") && !url.startsWith("//")) {
-      return window.location.origin + url;
-    }
-    return url;
-  };
-
-  const decodeRedirectUrl = (href) => {
-    if (href.includes("goto/link-confirmation?url=")) {
-      const urlObj = new URL(href);
-      const encodedUrl = urlObj.searchParams.get("url");
-      const decodedUrl = decodeBase64Url(encodedUrl);
-      if (decodedUrl) {
-        return decodedUrl;
-      }
-    }
-    if (href.includes("/redirect/?to=")) {
-      const urlObj = new URL(href);
-      const encodedUrl = urlObj.searchParams.get("to");
-      const decodedUrl = decodeBase64Url(encodedUrl);
-      if (decodedUrl) {
-        return decodedUrl;
-      }
-    }
-    return href;
-  };
-
-  function updateLocalStorage() {
-    let raw_links = [];
-
-    for (const link of document.querySelectorAll(combinedSelector)) {
-      let href = link.href || link.src;
-
-      href = addOriginIfRelativePath(href);
-
-      try {
-        href = decodeRedirectUrl(href);
-      } catch (e) {
-        console.error("Invalid URL format:", href);
-        continue;
-      }
-      console.log(href);
-
-      if (href && href.startsWith("http")) {
-        const isValid =
-          (excludeTerms.every((term) => !href.includes(term)) &&
-            siteTerms.every((term) => !link.closest(term))) ||
-          href.includes("attachment");
-
-        if (isValid) {
-          raw_links.push(href);
-        }
-      }
-    }
-
-    raw_links = raw_links.concat(extractLoadMediaSpecificUrls());
-    // Remove duplicate links
-    let links = [...new Set(raw_links)];
-
-    let savedLinks = JSON.parse(localStorage.getItem("saved_links")) || {};
-    savedLinks[pageURL] = links;
-
-    try {
-      localStorage.setItem("saved_links", JSON.stringify(savedLinks));
-    } catch (err) {
-      console.warn("Failed to write to localStorage:", err);
-      showToast("ERROR: Failed to write to localStorage!");
-    }
-    console.log(`Stored ${links.length} links from page: ${pageURL}`);
-    console.log("Updated saved_links:", savedLinks);
-    const data = {
-      urls: links,
-      origin: pageURL,
-    };
-    sendPostRequest(database_server_url, data);
   }
 
   // Event listener for button click
