@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Extract All Posted Links
 // @namespace    http://tampermonkey.net/
-// @version      2.7
+// @version      2.8
 // @updateURL    https://github.com/NTFSvolume/forumslinkgrabber/raw/refs/heads/main/extract_links.js
 // @downloadURL  https://github.com/NTFSvolume/forumslinkgrabber/raw/refs/heads/main/extract_links.js
 // @description  Adds a button to extract all posted links (ignoring unwanted ones) and handles redirects. Now includes options to download or copy links to clipboard, with enhanced UI and local storage support to avoid duplicates.
@@ -74,6 +74,7 @@
     "iframe",
     "[data-s9e-mediaembed-src]",
     "span[data-s9e-mediaembed-iframe]",
+    '[class*="iframe"][onclick]',
   ].join(", ");
 
   function sendPostRequest(url, data) {
@@ -102,31 +103,15 @@
     });
   }
 
-  function extractLoadMediaSpecificUrls() {
-    const elementsWithLoadMediaUrls = [];
-    const allElements = document.querySelectorAll('[class*="iframe"]');
+  function extract_onclick_src(element) {
     const mediaURL = /loadMedia\(this,\s*'([^']+?)'\)/;
-
-    allElements.forEach((element) => {
-      const onclickAttribute = element.getAttribute("onclick");
-
-      if (onclickAttribute) {
-        const match = onclickAttribute.match(mediaURL);
-
-        if (match && match[1]) {
-          let extractedUrl = match[1];
-          if (!extractedUrl.startsWith("https:")) {
-            extractedUrl = "https:" + extractedUrl;
-          }
-          elementsWithLoadMediaUrls.push(extractedUrl);
-        }
-      }
-    });
-
-    return elementsWithLoadMediaUrls;
+    const onclick = element.getAttribute("onclick");
+    const match = onclick?.match(mediaURL);
+    if (!match?.[1]) return null;
+    return match[1];
   }
 
-  const resolveURL = (url) => {
+  function resolveURL(url) {
     if (typeof url !== "string") return url;
     if (url.startsWith("//")) {
       return "https:" + url;
@@ -135,9 +120,9 @@
       return window.location.origin + url;
     }
     return url;
-  };
+  }
 
-  const decodeRedirectUrl = (href) => {
+  function decodeRedirectUrl(href) {
     if (href.includes("goto/link-confirmation?url=")) {
       const urlObj = new URL(href);
       const encodedUrl = urlObj.searchParams.get("url");
@@ -149,59 +134,71 @@
       return decodeBase64Url(encodedUrl);
     }
     return href;
-  };
+  }
 
-  function run() {
-    let raw_links = [];
+  function create_element(data, tagName = "iframe") {
+    const attrs = JSON.parse(data);
+    const element = document.createElement(tagName);
 
+    for (let i = 0; i < attrs.length; i += 2) {
+      element.setAttribute(attrs[i], attrs[i + 1]);
+    }
+
+    return element;
+  }
+
+  function load_lazy_iframes(name) {
+    const attr = `${name}-iframe`;
+    document.querySelectorAll(`span[${name}]`).forEach((span_iframe) => {
+      const inner = span_iframe.querySelector(`span[${attr}]`);
+      if (inner) {
+        const data = inner.getAttribute(attr);
+        if (data) {
+          span_iframe.replaceWith(create_element(data));
+        }
+      }
+    });
+  }
+
+  function* extract_urls() {
     for (const post of document.querySelectorAll(
       ".bbWrapper, .message-attachments, .attachmentList",
     )) {
       for (const tag of post.querySelectorAll(combinedSelector)) {
         let href =
+          extract_onclick_src(tag) ||
           tag.href ||
           tag.src ||
           tag.getAttribute("data-s9e-mediaembed-src") ||
           tag.getAttribute("data-url") ||
           tag.getAttribute("data-src");
 
-        if (
-          !href ||
-          href.startsWith("data:") ||
-          href.startsWith("javascript:")
-        ) {
-          continue;
-        }
+        if (!href || /^(data|javascript):/i.test(href)) continue;
 
-        href = resolveURL(href);
-
-        let decoded;
         try {
-          decoded = decodeRedirectUrl(href);
+          href = decodeRedirectUrl(resolveURL(href));
         } catch (e) {
           showToast("ERROR: Unable to decode URL: " + href);
           console.error("Unable to decode URL:", href, e);
           continue;
         }
-        href = decoded;
 
-        if (href && href.startsWith("http")) {
-          const isValid =
-            (excludeTerms.every((term) => !href.includes(term)) &&
-              siteTerms.every((term) => !tag.closest(term))) ||
-            href.includes("attachment");
+        if (!href?.startsWith("http")) continue;
 
-          if (isValid) {
-            raw_links.push(href);
-          }
+        if (
+          (href?.startsWith("http") && href.includes("attachment")) ||
+          (excludeTerms.every((term) => !href.includes(term)) &&
+            siteTerms.every((term) => !tag.closest(term)))
+        ) {
+          yield href;
         }
       }
     }
+  }
 
-    raw_links = raw_links.concat(extractLoadMediaSpecificUrls());
-    // Remove duplicate links
-    links = [...new Set(raw_links)];
-
+  function run() {
+    load_lazy_iframes("data-s9e-mediaembed");
+    links = [...new Set(extract_urls())];
     showToast(`Extracted ${links.length} links`);
     const data = {
       urls: links,
