@@ -7,6 +7,7 @@
 // @description  Adds a button to extract all posted links (ignoring unwanted ones) and handles redirects. Now includes options to download or copy links to clipboard, with enhanced UI and local storage support to avoid duplicates.
 // @author       Garcarius, neolith, NTFSvolume
 // @match        https://simpcity.cr/threads/*
+// @match        https://thirsthub.cc/threads/*
 // @match        https://forums.socialmediagirls.com/threads/*
 // @grant        GM_xmlhttpRequest
 // @run-at       document-idle   // Wait until the page is fully loaded
@@ -75,6 +76,7 @@
     "[data-s9e-mediaembed-src]",
     "span[data-s9e-mediaembed-iframe]",
     '[class*="iframe"][onclick]',
+    ".thTurboPlayer[data-video-id]",
   ].join(", ");
 
   function sendPostRequest(url, data) {
@@ -133,6 +135,10 @@
       const encodedUrl = urlObj.searchParams.get("to");
       return decodeBase64Url(encodedUrl);
     }
+    if (href.includes("/ads/go/?u=")) {
+      const urlObj = new URL(href);
+      return urlObj.searchParams.get("u");
+    }
     return href;
   }
 
@@ -160,12 +166,19 @@
     });
   }
 
+  function extract_turbo_embed(ele) {
+    if (ele.matches(".thTurboPlayer[data-video-id]")) {
+      return `https://turbo.cr/embed/${ele.getAttribute("data-video-id")}`;
+    }
+  }
+
   function* extract_urls() {
     for (const post of document.querySelectorAll(
       ".bbWrapper, .message-attachments, .attachmentList",
     )) {
       for (const tag of post.querySelectorAll(combinedSelector)) {
         let href =
+          extract_turbo_embed(tag) ||
           extract_onclick_src(tag) ||
           tag.href ||
           tag.src ||
